@@ -119,7 +119,8 @@ def hop_urls(run: Any) -> list[str]:
 
 
 def hop_retrieved_text(run: Any) -> str:
-    """URL + title + preview of each hit and title + body of each fetch: what the model was shown. Queries excluded."""
+    """URL + title + preview of each hit and title + body of each returned fetch: what the model was shown. Queries
+    excluded."""
     parts: list[str] = []
     for search in _searches(run):
         for hit in _hits(search):
@@ -129,6 +130,8 @@ def hop_retrieved_text(run: Any) -> str:
             parts.append(str(hit.get("title") or ""))
             parts.append(str(hit.get("snippet") or hit.get("text") or hit.get("content") or ""))
     for fetch in _fetches(run):
+        if not _fetch_returned_content(fetch):
+            continue
         parts.append(_fetch_title(fetch))
         parts.append(_fetch_body(fetch))
     return "\n".join(part for part in parts if part)
