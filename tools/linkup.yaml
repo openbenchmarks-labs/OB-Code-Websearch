@@ -12,3 +12,12 @@ setups:
       list_usd: 0.005
       basis: list
       bills_empty: false
+  linkup_deep:
+    class: comparison
+    pricing:
+      # depth=deep with outputType searchResults (docs.linkup.so/pages/documentation/development/pricing, read 20 Nov 2026).
+      list_usd: 0.05
+      basis: list
+      bills_empty: false
+      # Fetch, standard mode with renderJs (same page).
+      fetch_usd: 0.005

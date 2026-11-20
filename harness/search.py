@@ -641,6 +641,7 @@ class LinkupSearch(IntentTool):
     output_type = "searchResults"
     fetch_mode = "standard"
     render_js = True
+    search_timeout_s = SEARCH_TIMEOUT_S
     # Linkup's docs never mention `site:`, and includeDomains takes domains: "Restrict the search to up to 100
     # domains" (linkup-for-agents.md:114; OpenAPI "The domains you want to search on").
     site_lift: SiteLift = True
@@ -675,7 +676,7 @@ class LinkupSearch(IntentTool):
                 LINKUP_SEARCH_URL,
                 headers=self._headers(),
                 json_body=body,
-                timeout=SEARCH_TIMEOUT_S,
+                timeout=self.search_timeout_s,
             )
         except requests.HTTPError as exc:
             # Linkup answers "Search query yields no result" with HTTP 400 SEARCH_QUERY_NO_RESULT
@@ -712,6 +713,14 @@ class LinkupSearch(IntentTool):
 class LinkupStandard(LinkupSearch):
     name = "linkup_standard"
     depth = "standard"
+
+
+class LinkupDeep(LinkupSearch):
+    """depth=deep: multi-step agentic search ($0.05 per search)."""
+
+    name = "linkup_deep"
+    depth = "deep"
+    search_timeout_s = 180
 
 
 class TavilySearch(IntentTool):
@@ -2299,6 +2308,7 @@ SEARCH_FETCH_BACKENDS: tuple[str, ...] = (
     "tavily_basic",
     "tavily_advanced",
     "linkup_standard",
+    "linkup_deep",
     "firecrawl",
     "you_highlights",
     "you_highlights_core",
@@ -2334,6 +2344,7 @@ BACKENDS: dict[str, Callable[[], SearchBackend]] = {
     "exa_lite": ExaLite,
     "linkup_fast": LinkupSearch,
     "linkup_standard": LinkupStandard,
+    "linkup_deep": LinkupDeep,
     "tavily_basic": TavilyBasic,
     "tavily_advanced": TavilyAdvanced,
     "brave": BraveSearch,
