@@ -104,6 +104,8 @@ TINYFISH_FETCH_URL = "https://api.fetch.tinyfish.ai"
 TINYFISH_FETCH_TIMEOUT_S = 150
 TAKO_SEARCH_URL = "https://tako.com/api/v3/search"
 PERPLEXITY_SEARCH_URL = "https://api.perplexity.ai/search"
+STRING_SEARCH_URL = "https://request.usestring.ai/v1/search"
+STRING_FETCH_URL = "https://request.usestring.ai/v1/fetch"
 KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search"
 HEADER_REDACT_TOKENS = (
     "authorization",
@@ -2073,6 +2075,7 @@ def vendor_request(
     timeout: float,
     json_body: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
+    text_body: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
     request_audit = {
         "method": method,
@@ -2109,11 +2112,14 @@ def vendor_request(
         setattr(error, "vendor_meta", meta)
         raise error from exc
     decode_error = False
-    try:
-        payload: Any = response.json() if response.content else {}
-    except ValueError:
-        decode_error = True
-        payload = {"raw": response.text or ""}
+    if text_body:
+        payload: Any = response.text or ""
+    else:
+        try:
+            payload = response.json() if response.content else {}
+        except ValueError:
+            decode_error = True
+            payload = {"raw": response.text or ""}
     meta: dict[str, Any] = {
         "endpoint": url,
         "method": method,
@@ -2264,6 +2270,89 @@ def _pop_flags(page: dict[str, Any]) -> dict[str, Any]:
     return flags
 
 
+class StringSearch:
+    """String Web Access search + readable markdown fetch; dual-split."""
+
+    name = "string"
+    engine = "google"
+    last_meta: dict[str, Any] | None = None
+
+    def _headers(self) -> dict[str, str]:
+        key = os.environ.get("STRING_API_KEY")
+        if not key:
+            raise RuntimeError("STRING_API_KEY is required for string")
+        return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    def search(self, query: str, *, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict[str, str]]:
+        payload, meta = vendor_call(
+            self,
+            "POST",
+            STRING_SEARCH_URL,
+            headers=self._headers(),
+            json_body={"query": query, "engine": self.engine},
+            timeout=SEARCH_TIMEOUT_S,
+        )
+        hits = parse_string_hits(payload, max_results=max_results)
+        self.last_meta = _search_meta(meta, hits)
+        return hits
+
+    def fetch(self, url: str, *, objective: str = "") -> dict[str, str]:
+        del objective
+        payload, meta = vendor_call(
+            self,
+            "POST",
+            STRING_FETCH_URL,
+            headers=self._headers(),
+            json_body={"url": url, "format": "markdown", "markdownMode": "readable"},
+            timeout=FETCH_TIMEOUT_S,
+            text_body=True,
+        )
+        headers = (meta.get("response") or {}).get("headers") or {}
+        status = next((value for key, value in headers.items() if key.lower() == "x-status-code"), None)
+        page = parse_string_fetch(payload, url=url, status_code=int(status) if status else None)
+        self.last_meta = {**meta, **_pop_flags(page)}
+        page["_meta"] = self.last_meta
+        return page
+
+
+def parse_string_hits(payload: Any, *, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict[str, str]]:
+    rows = (payload or {}).get("results") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        rows = []
+    hits: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in rows:
+        if not isinstance(item, dict) or not item.get("url"):
+            continue
+        url = str(item["url"])
+        if url in seen:
+            continue
+        seen.add(url)
+        hits.append({
+            "url": url,
+            "title": str(item.get("title") or ""),
+            "snippet": str(item.get("snippet") or "")[:1200],
+        })
+        if len(hits) >= max_results:
+            break
+    return hits
+
+
+def parse_string_fetch(
+    payload: str, *, url: str, status_code: int | None, max_chars: int = DEFAULT_MAX_FETCH_CHARS,
+) -> dict[str, Any]:
+    """String's `format: markdown` fetch answers with a text/markdown body; the page's own status is `x-status-code`."""
+    if not payload:
+        raise RuntimeError(f"{url}: fetch returned no markdown")
+    return {
+        "url": url,
+        "title": "",
+        "content": payload[:max_chars],
+        "_truncated": len(payload) > max_chars,
+        "_status_code": status_code,
+    }
+
+
 # Canonical ids. Aliases below keep old CLI names working.
 SEARCH_ONLY_BACKENDS: tuple[str, ...] = (
     "parallel_fast_tool",
@@ -2292,6 +2381,7 @@ SEARCH_ONLY_BACKENDS: tuple[str, ...] = (
     "tako_plain",
     "serp",
     "serp_en_us",
+    "string",
 )
 SEARCH_FETCH_BACKENDS: tuple[str, ...] = (
     "nimble_standard",
@@ -2303,6 +2393,7 @@ SEARCH_FETCH_BACKENDS: tuple[str, ...] = (
     "you_highlights",
     "you_highlights_core",
     "tinyfish",
+    "string",
 )
 BACKEND_ALIASES = {
     "exa": "exa_auto",
@@ -2312,7 +2403,7 @@ BACKEND_ALIASES = {
 BACKEND_ALIAS_SPLIT = {alias: "search-only" for alias in BACKEND_ALIASES}
 # Search-only exclusive rows cannot turn fetch on. Search+fetch exclusive rows
 # cannot turn fetch off. Dual-split vendors sit on both boards.
-DUAL_SPLIT_BACKENDS = frozenset({"nimble_standard", "tavily_basic", "tavily_advanced", "exa_auto", "firecrawl", "you_highlights", "you_highlights_core", "tinyfish", "linkup_standard"})
+DUAL_SPLIT_BACKENDS = frozenset({"nimble_standard", "tavily_basic", "tavily_advanced", "exa_auto", "firecrawl", "you_highlights", "you_highlights_core", "tinyfish", "linkup_standard", "string"})
 FETCH_FORBIDDEN = frozenset(SEARCH_ONLY_BACKENDS) - DUAL_SPLIT_BACKENDS
 FETCH_REQUIRED = frozenset(SEARCH_FETCH_BACKENDS) - DUAL_SPLIT_BACKENDS
 
@@ -2340,6 +2431,7 @@ BACKENDS: dict[str, Callable[[], SearchBackend]] = {
     "brave_tokens_6100": BraveTokens,
     "serp": SerpSearch,
     "serp_en_us": SerpEnUs,
+    "string": StringSearch,
     "you_highlights": YouHighlights,
     "you_highlights_core": YouHighlightsCore,
     "you_highlights_core_documented": YouHighlightsCoreDocumented,

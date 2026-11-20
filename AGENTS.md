@@ -8,7 +8,7 @@ Quick navigation guide for coding agents working in `OB-Code-Websearch`.
 |---|---|---|
 | **`data/`** | Public benchmark questions (30 questions) | `data/README.md`, `data/questions.jsonl` |
 | **`harness/`** | Execution only: agent limits, CLI runner, agent loop, search adapters, logger | `harness/config.yaml`, `harness/run.py`, `harness/agent.py`, `harness/search.py`, `harness/logger.py` |
-| **`tools/`** | Tool setups & pricing (one file per tool for clean PRs) | `tools/<tool>.yaml` (13 tools) |
+| **`tools/`** | Tool setups & pricing (one file per tool for clean PRs) | `tools/<tool>.yaml` (14 tools) |
 | **`judge/`** | Grading only: rules & board config, v2 judge, checks, retrieval, verifier prompt | `judge/config.yaml`, `judge/grader.py`, `judge/checks.py`, `judge/retrieval.py`, `judge/verifier_prompt.txt` |
 
 Benchmark order & win condition live at the root in `benchmark.yaml`.

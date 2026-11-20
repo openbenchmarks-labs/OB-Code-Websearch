@@ -1,0 +1,12 @@
+tool: string
+setups:
+  string:
+    class: comparison
+    pricing:
+      # Search, $1.20 per 1,000 requests on Starter, the rate the free credit is billed at (usestring.ai/pricing, read
+      # 20 Nov 2026).
+      list_usd: 0.0012
+      basis: list
+      bills_empty: true
+      # Fetch, up to $4.80 per 1,000 for Browser with a premium proxy on Starter, the dearest fetch route (same page).
+      fetch_usd: 0.0048
