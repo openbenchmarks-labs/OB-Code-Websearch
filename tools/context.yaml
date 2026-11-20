@@ -1,0 +1,12 @@
+tool: context
+setups:
+  context:
+    class: comparison
+    pricing:
+      # Web search with highlights, 10 results: 1 credit per 10 results plus 1 per 10 results for highlights, 2 credits;
+      # the dearest public credit price, Developer overage, $3.00 per 1,000 credits (context.dev/pricing, read 20 Nov 2026).
+      list_usd: 0.006
+      basis: list
+      bills_empty: true
+      # Markdown scrape, 1 credit, at the same $3.00 per 1,000 credits (context.dev/pricing, read 20 Nov 2026).
+      fetch_usd: 0.003

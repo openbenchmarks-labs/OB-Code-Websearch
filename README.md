@@ -16,9 +16,9 @@ Each task gives a coding agent a realistic integration ticket against an enterpr
 
 ## Tools evaluated
 
-13 search tools configured in [`tools/`](tools/README.md):
+14 search tools configured in [`tools/`](tools/README.md):
 
-`brave`, `exa`, `firecrawl`, `keenable`, `linkup`, `nimble`, `parallel`, `perplexity`, `serp`, `tako`, `tavily`, `tinyfish`, `you`
+`brave`, `context`, `exa`, `firecrawl`, `keenable`, `linkup`, `nimble`, `parallel`, `perplexity`, `serp`, `tako`, `tavily`, `tinyfish`, `you`
 
 ## Dataset
 
@@ -31,7 +31,7 @@ See [`data/README.md`](data/README.md) for the full file format and field defini
 
 - [`data/`](data/README.md): 30 public benchmark questions and schema documentation.
 - [`harness/`](harness/README.md): Coding agent loop, search API adapters, and CLI runner (`harness/run.py`).
-- [`tools/`](tools/README.md): One `<tool>.yaml` config per search API (13 tools).
+- [`tools/`](tools/README.md): One `<tool>.yaml` config per search API (14 tools).
 - [`judge/`](judge/README.md): Grading rules, code/citation/retrieval checks, and board aggregation.
 - [`benchmark.yaml`](benchmark.yaml): Benchmark contract, scope, and refresh cadence.
 - [`AGENTS.md`](AGENTS.md): Entry guide for coding agents.
