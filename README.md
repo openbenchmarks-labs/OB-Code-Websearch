@@ -14,6 +14,8 @@ Each task gives a coding agent a realistic integration ticket against an enterpr
 - **Fixed protocol:** Every tool runs with the same coding model, turn limit, search budget, and day (`harness/config.yaml`).
 - **Scoring:** `judge/` grades each final answer against ground truth, checking the constructed request, code extraction, citations, and retrieval (`judge/config.yaml`). Primary metrics are grounded task completion accuracy, latency, and token efficiency.
 
+In the default mode, a question passes when the agent's final API call matches an accepted answer in the ground truth: the agent named the right call, but the call is not sent to the real product and no program is run. Whether the search tool returned the docs that hold the answer is scored separately and does not affect a pass.
+
 ## Tools evaluated
 
 13 search tools configured in [`tools/`](tools/README.md):
