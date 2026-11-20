@@ -206,6 +206,19 @@ def arm_label(backend: str, allow_fetch: bool) -> str:
     return f"{backend}+fetch" if allow_fetch else f"{backend}+search"
 
 
+def score_answer(
+    task, *, answer: str, source: str, search_hops: list[Any], fetch_hops: list[Any], retrieval_policy: str,
+) -> tuple[bool | None, bool | None, dict[str, Any]]:
+    """(passed, retrieval_passed, details) for one answer, from live hops or the hop dicts saved in a result row."""
+    if answer == "facts":
+        verdict = grade(task.retrieval_key["accepted"], source)
+        retrieval = score_retrieval(task, search_hops=search_hops, fetch_hops=fetch_hops, policy=retrieval_policy)
+        return verdict.passed, retrieval["passed"], {"answer": verdict.to_dict(), "retrieval": retrieval}
+    hops = {"searches": search_hops, "fetches": fetch_hops}
+    score = score_ops(source, task, observed_urls=hop_urls(hops), retrieved_text=hop_retrieved_text(hops))
+    return score.passed, None, score.to_dict()
+
+
 def run_arm(
     task,
     *,
@@ -249,17 +262,10 @@ def run_arm(
         evidence_root=evidence_root,
     )
     source = run.answer if is_facts else extract_code(run.answer, task.outfile)
-    if is_facts:
-        verdict = grade(task.retrieval_key["accepted"], run.answer)
-        retrieval = score_retrieval(task, search_hops=run.searches, fetch_hops=run.fetches, policy=retrieval_policy)
-        passed = verdict.passed
-        retrieval_passed = retrieval["passed"]
-        details = {"answer": verdict.to_dict(), "retrieval": retrieval}
-    else:
-        score = score_ops(source, task, observed_urls=hop_urls(run), retrieved_text=hop_retrieved_text(run))
-        passed = score.passed
-        retrieval_passed = None
-        details = score.to_dict()
+    passed, retrieval_passed, details = score_answer(
+        task, answer=answer, source=source, search_hops=run.searches, fetch_hops=run.fetches,
+        retrieval_policy=retrieval_policy,
+    )
     result = {
         "id": task.id,
         "backend": label,
@@ -346,11 +352,41 @@ def selftest(path: Path) -> int:
     return 1 if failed else 0
 
 
+def replay(paths: list[Path], tasks_path: Path) -> int:
+    """Re-score saved result rows offline from their hops and report any row whose verdict or details change."""
+    tasks = {task.id: task for task in load_tasks(tasks_path)}
+    counts = {"match": 0, "mismatch": 0, "skipped": 0}
+    for path in paths:
+        for row in json.loads(path.read_text())["results"]:
+            task = tasks.get(row["id"])
+            if row.get("error") or task is None:
+                counts["skipped"] += 1
+                print(f"skipped  {row['id']} {row['backend']} ({'run errored' if row.get('error') else 'task not in --tasks'})")
+                continue
+            answer = row["answer_mode"]
+            policy = row["score"]["retrieval"]["policy"] if answer == "facts" else ""
+            passed, retrieval_passed, details = score_answer(
+                task, answer=answer, source=row["source"], search_hops=row["search_hops"],
+                fetch_hops=row["fetch_hops"], retrieval_policy=policy,
+            )
+            same = (passed, retrieval_passed) == (row["passed"], row["retrieval_passed"]) and (
+                json.loads(json.dumps(details)) == row["score"])
+            status = "match" if same else "mismatch"
+            counts[status] += 1
+            print(f"{status:8} {row['id']} {row['backend']} live={row['passed']} replay={passed}")
+    print(f"replayed={counts['match'] + counts['mismatch']} match={counts['match']} "
+          f"mismatch={counts['mismatch']} skipped={counts['skipped']}")
+    return 1 if counts["mismatch"] else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     st = sub.add_parser("selftest", help="Judge gold and starter code offline and construct the runners.")
     st.add_argument("--tasks", type=Path, required=True, help="JSONL file of tasks, one per line.")
+    rp = sub.add_parser("replay", help="Re-score saved runs offline from their saved hops; exit 1 if any verdict changes.")
+    rp.add_argument("--tasks", type=Path, required=True, help="JSONL file of tasks, one per line.")
+    rp.add_argument("paths", nargs="+", type=Path, help="Result files written by run --out.")
     run = sub.add_parser("run", help="Score one or more tickets.")
     run.add_argument("--ids", default="")
     run.add_argument("--tasks", type=Path, required=True, help="JSONL file of tasks, one per line.")
@@ -399,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
     load_environment()
     if args.cmd == "selftest":
         return selftest(args.tasks)
+    if args.cmd == "replay":
+        return replay(args.paths, args.tasks)
     ids = [item.strip() for item in args.ids.split(",") if item.strip()]
     tasks = load_tasks(args.tasks, ids=ids or None)
     if not args.split:

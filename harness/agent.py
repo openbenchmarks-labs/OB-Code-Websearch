@@ -124,7 +124,7 @@ class SearchCall:
                 {
                     "url": str(hit.get("url") or ""),
                     "title": str(hit.get("title") or ""),
-                    "snippet": str(hit.get("snippet") or ""),
+                    "snippet": str(hit.get("snippet") or hit.get("text") or hit.get("content") or ""),
                 }
                 for hit in (self.hits or [])
                 if isinstance(hit, dict)
