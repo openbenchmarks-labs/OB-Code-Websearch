@@ -1,8 +1,24 @@
 subject: coding_agent
 model: gpt-6-sol
+reasoning_effort: medium
 limits:
   max_turns: 32
   max_searches: 5
+  max_fetches: 5
+  # Parallel bills $0.001 per result above 10 (docs.parallel.ai/getting-started/pricing); above 10, raise its list_usd.
   results_per_search: 8
   preview_chars: 32000
-repeats: 3
+# Default hard cap for one `harness.run run` (model, search and fetch requests); --cap-usd overrides it.
+spend_cap_usd: 100
+# USD per million tokens: the dearest Azure OpenAI Data Zone Standard meters for gpt-6-sol ("6-sol ShortCo Inp Std DZ",
+# "6-sol ShortCo Opt Std DZ", "6-sol LongCo Inp Std DZ", "6-sol LongCo Opt Std DZ"), Azure Retail Prices API
+# (https://prices.azure.com/api/retail/prices, productName "Azure OpenAI GPT6"), read 20 Nov 2026. The price list does
+# not publish where long context starts; long_context_tokens is unpublished and assumed. Each turn reserves at the
+# long rates, and a turn whose input is above long_context_tokens settles at them.
+model_prices:
+  gpt-6-sol:
+    input_usd_per_million: 2.4
+    output_usd_per_million: 12.0
+    long_input_usd_per_million: 4.8
+    long_output_usd_per_million: 18.0
+    long_context_tokens: 272000

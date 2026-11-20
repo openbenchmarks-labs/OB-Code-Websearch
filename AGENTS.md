@@ -7,7 +7,7 @@ Quick navigation guide for coding agents working in `OB-Code-Websearch`.
 | Folder | Owns | Files |
 |---|---|---|
 | **`data/`** | Public benchmark questions (30 questions) | `data/README.md`, `data/questions.jsonl` |
-| **`harness/`** | Execution only: agent limits, CLI runner, agent loop, search adapters, logger | `harness/config.yaml`, `harness/run.py`, `harness/agent.py`, `harness/search.py`, `harness/logger.py` |
+| **`harness/`** | Execution only: agent limits, spend cap, CLI runner, agent loop, search adapters, logger | `harness/config.yaml`, `harness/run.py`, `harness/agent.py`, `harness/spend.py`, `harness/search.py`, `harness/logger.py` |
 | **`tools/`** | Tool setups & pricing (one file per tool for clean PRs) | `tools/<tool>.yaml` (13 tools) |
 | **`judge/`** | Grading only: rules & board config, v2 judge, checks, retrieval, verifier prompt | `judge/config.yaml`, `judge/grader.py`, `judge/checks.py`, `judge/retrieval.py`, `judge/verifier_prompt.txt` |
 
@@ -18,7 +18,7 @@ Benchmark order & win condition live at the root in `benchmark.yaml`.
 ```sh
 # Offline selftest (no API keys)
 uv venv && uv pip install -r requirements.txt
-.venv/bin/python -B -m harness.run selftest --tasks data/questions.jsonl
+.venv/bin/python -B -m harness.run selftest
 ```
 
 ## Guidelines

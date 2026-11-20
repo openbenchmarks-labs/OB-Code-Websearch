@@ -6,6 +6,10 @@ setups:
       list_usd: 0.01
       basis: list
       bills_empty: false
+      # Scrape, 1 credit a page, and PDF parsing adds 1 credit per PDF page (docs.firecrawl.dev/billing), at the dearest
+      # public credit price, Hobby pay-as-you-go, $5 for 1,000 credits (firecrawl.dev/pricing, read 20 Nov 2026). This
+      # reserves one page plus one PDF page, so a longer PDF can cost more.
+      fetch_usd: 0.01
   firecrawl_domains:
     class: main
     pricing:

@@ -42,15 +42,17 @@ Run the offline verification check (no API keys required):
 
 ```sh
 uv venv && uv pip install -r requirements.txt
-.venv/bin/python -B -m harness.run selftest --tasks data/questions.jsonl
+.venv/bin/python -B -m harness.run selftest
 ```
 
-To run against live APIs, copy `.env.example` to `.env`, add the required API keys, and inspect runner options:
+To run against live APIs, copy `.env.example` to `.env` and add the keys for the tools you run. One question, one tool, search only:
 
 ```sh
 cp .env.example .env
-.venv/bin/python -m harness.run --help
+.venv/bin/python -m harness.run run --backend parallel_fast_tool --split search-only --ids <task_id> --cap-usd 2
 ```
+
+The model, effort and limits come from `harness/config.yaml`. `--data` takes another questions file in the same format. The run stops before any request that would take its spend past `--cap-usd` (default `spend_cap_usd` in the config), counted at the model prices in `harness/config.yaml` and the search and fetch prices in `tools/*.yaml`. `--help` lists the other options.
 
 ## Adding or updating a tool
 

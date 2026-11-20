@@ -6,6 +6,8 @@ setups:
       list_usd: 0.007
       basis: list
       bills_empty: false
+      # Contents, $1 per 1,000 pages per content type; the fetch asks for text only (exa.ai/pricing, read 20 Nov 2026).
+      fetch_usd: 0.001
   exa_auto_domains:
     class: main
     pricing:

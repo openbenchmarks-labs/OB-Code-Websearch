@@ -6,12 +6,18 @@ setups:
       list_usd: 0.005
       basis: list
       bills_empty: true
+      # Contents is not on you.com/pricing (read 20 Nov 2026). Its Extract API lists $0.90 per 1,000 URLs, and PDFs add
+      # $0.50 per 1,000 pages; this reserves one URL plus one PDF page, so a longer PDF can cost more.
+      fetch_usd: 0.0015
   you_highlights:
     class: main
     pricing:
       list_usd: 0.005
       basis: list
       bills_empty: true
+      # Contents is not on you.com/pricing (read 20 Nov 2026). Its Extract API lists $0.90 per 1,000 URLs, and PDFs add
+      # $0.50 per 1,000 pages; this reserves one URL plus one PDF page, so a longer PDF can cost more.
+      fetch_usd: 0.0015
   you_highlights_core_documented:
     class: main
     pricing:

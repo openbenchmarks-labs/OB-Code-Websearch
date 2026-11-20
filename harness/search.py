@@ -4,7 +4,7 @@ HTTP call + hit shape for Parallel, Firecrawl, Exa, Linkup, Tavily, Brave
 (LLM Context), SERP RapidAPI, You.com, TinyFish, Tako, Perplexity, Nimble and
 Keenable. Vendors are locked to search-only vs search-fetch boards in
 SEARCH_ONLY_BACKENDS / SEARCH_FETCH_BACKENDS. Nimble, Tavily Basic, Firecrawl,
-You and TinyFish sit on both. Keenable, Tako, Perplexity and SERP are search-only.
+You, TinyFish and the two Parallel tool lanes sit on both. Keenable, Tako, Perplexity and SERP are search-only.
 """
 
 from __future__ import annotations
@@ -81,8 +81,6 @@ def extract_price() -> float | None:
 # --- End Nimble REST helper ---
 
 from .logger import begin_request, end_request
-
-SEARCH_PREVIEW_BUDGET_CHARS = 32_000
 
 PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search"
 PARALLEL_EXTRACT_URL = "https://api.parallel.ai/v1/extract"
@@ -447,7 +445,7 @@ class ParallelFastTool(ParallelFast):
 
 
 class ParallelAdvancedTool(ParallelFastTool):
-    """Settings option: Parallel's higher-accuracy search mode, search only. Parallel's API defaults to `advanced`
+    """Settings option: Parallel's higher-accuracy search mode, on both boards. Parallel's API defaults to `advanced`
     when `mode` is omitted (parallel-api-search.md:262-265). One 60 s search timeout, as every lane."""
 
     name = "parallel_advanced_tool"
@@ -1627,15 +1625,15 @@ def hit_text_stats(hits: list[dict[str, str]]) -> dict[str, int]:
     }
 
 
-def fit_search_budget(hits: list[dict[str, str]]) -> tuple[list[dict[str, str]], int]:
-    """Hits as the agent sees them under SEARCH_PREVIEW_BUDGET_CHARS, the same for every vendor.
+def fit_search_budget(hits: list[dict[str, str]], budget: int) -> tuple[list[dict[str, str]], int]:
+    """Hits as the agent sees them under `budget` characters (harness/config.yaml preview_chars), the same for every vendor.
 
     Every hit's url + title is reserved first, so no returned result disappears; the rest of the budget fills
     previews in API order, and the hit that overflows keeps its preview cut there. Hits whose url + title alone
     exceed what is left are dropped from the end. Returns the shown hits and the number of characters cut.
     """
     kept_hits: list[dict[str, str]] = []
-    left = SEARCH_PREVIEW_BUDGET_CHARS
+    left = budget
     for hit in hits:
         size = len(str(hit.get("url") or "")) + len(str(hit.get("title") or ""))
         if size > left:
@@ -2294,6 +2292,8 @@ SEARCH_ONLY_BACKENDS: tuple[str, ...] = (
     "serp_en_us",
 )
 SEARCH_FETCH_BACKENDS: tuple[str, ...] = (
+    "parallel_fast_tool",
+    "parallel_advanced_tool",
     "nimble_standard",
     "exa_auto",
     "tavily_basic",
@@ -2312,7 +2312,7 @@ BACKEND_ALIASES = {
 BACKEND_ALIAS_SPLIT = {alias: "search-only" for alias in BACKEND_ALIASES}
 # Search-only exclusive rows cannot turn fetch on. Search+fetch exclusive rows
 # cannot turn fetch off. Dual-split vendors sit on both boards.
-DUAL_SPLIT_BACKENDS = frozenset({"nimble_standard", "tavily_basic", "tavily_advanced", "exa_auto", "firecrawl", "you_highlights", "you_highlights_core", "tinyfish", "linkup_standard"})
+DUAL_SPLIT_BACKENDS = frozenset({"parallel_fast_tool", "parallel_advanced_tool", "nimble_standard", "tavily_basic", "tavily_advanced", "exa_auto", "firecrawl", "you_highlights", "you_highlights_core", "tinyfish", "linkup_standard"})
 FETCH_FORBIDDEN = frozenset(SEARCH_ONLY_BACKENDS) - DUAL_SPLIT_BACKENDS
 FETCH_REQUIRED = frozenset(SEARCH_FETCH_BACKENDS) - DUAL_SPLIT_BACKENDS
 

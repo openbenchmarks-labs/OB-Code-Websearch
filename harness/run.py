@@ -13,13 +13,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from judge import checks as facts
 from judge.checks import grade
 
-from .agent import DEFAULT_MODEL, run_agent
+from .agent import run_agent
+from .spend import Spend
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parent
+CONFIG = yaml.safe_load((HERE / "config.yaml").read_text())
 
 AZURE_KEY_ENV = "AZURE_OPENAI_NEXTGEN_DEPLOYMENT_KEY"
 AZURE_URL_ENV = "AZURE_OPENAI_NEXTGEN_DEPLOYMENT_URL"
@@ -192,6 +196,15 @@ def parse_arms(raw: str, *, split: str = "") -> tuple[str, ...]:
     return arms
 
 
+def setup_prices(name: str) -> tuple[float, float | None]:
+    """A setup's price per search request (`list_usd`) and per fetched page (`fetch_usd`), from tools/*.yaml."""
+    for path in sorted((ROOT / "tools").glob("*.yaml")):
+        setup = (yaml.safe_load(path.read_text()).get("setups") or {}).get(name)
+        if setup:
+            return float(setup["pricing"]["list_usd"]), setup["pricing"].get("fetch_usd")
+    raise SystemExit(f"{name} has no price in tools/*.yaml")
+
+
 def parse_fetch_modes(raw: str) -> tuple[bool, ...]:
     if raw == "on":
         return (True,)
@@ -221,6 +234,8 @@ def run_arm(
     run_stamp: str = "",
     answer: str,
     retrieval_policy: str,
+    spend: Spend,
+    prices: tuple[float, float | None],
 ) -> dict[str, Any]:
     label = arm_label(backend, allow_fetch)
     evidence_root = (
@@ -238,8 +253,11 @@ def run_arm(
         client=client,
         backend_name=backend,
         model=model,
+        reasoning_effort=CONFIG["reasoning_effort"],
         max_turns=max_turns,
         max_searches=max_searches,
+        max_results=CONFIG["limits"]["results_per_search"],
+        preview_chars=CONFIG["limits"]["preview_chars"],
         max_fetches=0 if not allow_fetch else max_fetches,
         system=system,
         allow_search=True,
@@ -247,6 +265,9 @@ def run_arm(
         leak_needles=task.leak_needles(),
         text_format=facts.ANSWER_SCHEMA if is_facts else None,
         evidence_root=evidence_root,
+        spend=spend,
+        search_usd=prices[0],
+        fetch_usd=prices[1] or 0.0,
     )
     source = run.answer if is_facts else extract_code(run.answer, task.outfile)
     if is_facts:
@@ -350,10 +371,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     st = sub.add_parser("selftest", help="Judge gold and starter code offline and construct the runners.")
-    st.add_argument("--tasks", type=Path, required=True, help="JSONL file of tasks, one per line.")
+    st.add_argument("--data", type=Path, default=ROOT / "data" / "questions.jsonl", help="JSONL questions file.")
     run = sub.add_parser("run", help="Score one or more tickets.")
     run.add_argument("--ids", default="")
-    run.add_argument("--tasks", type=Path, required=True, help="JSONL file of tasks, one per line.")
+    run.add_argument("--data", type=Path, default=ROOT / "data" / "questions.jsonl", help="JSONL questions file.")
     run.add_argument(
         "--backend",
         default="all",
@@ -373,10 +394,13 @@ def main(argv: list[str] | None = None) -> int:
         help="facts: grade the final API call against the key (default). code: run the submitted file.",
     )
     run.add_argument("--retrieval-policy", default="L1", choices=tuple(POLICY_VERSIONS), help="Retrieval policy for the retrieval verdict.")
-    run.add_argument("--model", default=DEFAULT_MODEL)
-    run.add_argument("--max-turns", type=int, default=32)
-    run.add_argument("--max-searches", type=int, default=5)
-    run.add_argument("--max-fetches", type=int, default=None, help="Fetch budget per task. Default: 0 for search-only, else 5.")
+    run.add_argument("--model", default=CONFIG["model"])
+    run.add_argument("--max-turns", type=int, default=CONFIG["limits"]["max_turns"])
+    run.add_argument("--max-searches", type=int, default=CONFIG["limits"]["max_searches"])
+    run.add_argument("--max-fetches", type=int, default=None,
+                     help=f"Fetch budget per task. Default: 0 for search-only, else {CONFIG['limits']['max_fetches']}.")
+    run.add_argument("--cap-usd", type=float, default=CONFIG["spend_cap_usd"],
+                     help="Stop the run before a request would take its counted spend past this many USD.")
     run.add_argument("--concurrency", type=int, default=1)
     run.add_argument(
         "--split",
@@ -398,14 +422,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     load_environment()
     if args.cmd == "selftest":
-        return selftest(args.tasks)
+        return selftest(args.data)
     ids = [item.strip() for item in args.ids.split(",") if item.strip()]
-    tasks = load_tasks(args.tasks, ids=ids or None)
+    tasks = load_tasks(args.data, ids=ids or None)
     if not args.split:
         args.split = BACKEND_ALIAS_SPLIT.get(args.backend.strip(), "")
     split = parse_split(args.split) if args.split else ""
     if args.max_fetches is None:
-        args.max_fetches = 0 if split == "search-only" else 5
+        args.max_fetches = 0 if split == "search-only" else CONFIG["limits"]["max_fetches"]
     backends = parse_arms(args.backend, split=split)
     if args.fetch_mode is None:
         if split == "search-only":
@@ -433,8 +457,16 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             f"{', '.join(fetch_off)} is search+fetch; use --split search-fetch"
         )
+    prices = {name: setup_prices(name) for name in backends}
+    unpriced = [name for name, (_, fetch_usd) in prices.items() if fetch_usd is None]
+    if unpriced and True in fetch_modes:
+        raise SystemExit(f"no fetch price for {', '.join(unpriced)}: the spend cap cannot count their fetches. "
+                         "Add fetch_usd under each setup's pricing in tools/<tool>.yaml.")
+    if args.model not in CONFIG["model_prices"]:
+        raise SystemExit(f"{args.model} has no model_prices entry in harness/config.yaml")
+    spend = Spend(args.cap_usd, CONFIG["model_prices"][args.model])
     run_stamp = parse_run_stamp(args.run_stamp) or new_run_stamp()
-    client = make_llm_client(timeout=180, max_retries=1)
+    client = make_llm_client(timeout=180, max_retries=0)
     jobs = [
         (task, backend, allow_fetch)
         for task in tasks
@@ -444,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     workers = max(1, args.concurrency)
     print(
         f"split={split or '-'} "
-        f"llm={llm_transport()} model={args.model} n={len(jobs)} concurrency={workers}",
+        f"llm={llm_transport()} model={args.model} n={len(jobs)} concurrency={workers} cap_usd={args.cap_usd:g}",
         flush=True,
     )
 
@@ -452,8 +484,10 @@ def main(argv: list[str] | None = None) -> int:
     if raw_dir is not None:
         print(f"raw_dir={raw_dir.resolve()} run_stamp={run_stamp}", flush=True)
 
-    def _one(job: tuple) -> dict[str, Any]:
+    def _one(job: tuple) -> dict[str, Any] | None:
         task, backend, allow_fetch = job
+        if spend.stopped:
+            return None
         try:
             return run_arm(
                 task,
@@ -469,40 +503,56 @@ def main(argv: list[str] | None = None) -> int:
                 run_stamp=run_stamp,
                 answer=args.answer,
                 retrieval_policy=args.retrieval_policy,
+                spend=spend,
+                prices=prices[backend],
             )
         except Exception as exc:  # noqa: BLE001
+            if spend.stopped:
+                return None
             return failed_arm(task, backend=backend, allow_fetch=allow_fetch, exc=exc)
+
+    def _record(row: dict[str, Any] | None) -> None:
+        if row is not None:
+            results.append(row)
+            print(row["id"], row["backend"], "pass" if row["passed"] else "fail", row.get("error") or "", flush=True)
 
     results: list[dict[str, Any]] = []
     if workers == 1:
         for job in jobs:
-            row = _one(job)
-            results.append(row)
-            print(row["id"], row["backend"], "pass" if row["passed"] else "fail", row.get("error") or "", flush=True)
+            _record(_one(job))
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futs = {pool.submit(_one, job): job for job in jobs}
-            for fut in as_completed(futs):
-                row = fut.result()
-                results.append(row)
-                print(row["id"], row["backend"], "pass" if row["passed"] else "fail", row.get("error") or "", flush=True)
+            for fut in as_completed([pool.submit(_one, job) for job in jobs]):
+                _record(fut.result())
     results.sort(key=lambda row: (row["id"], row["backend"]))
     passed = sum(1 for row in results if row["passed"])
     summary = {
         "n": len(results),
+        "not_run": len(jobs) - len(results),
         "passed": passed,
         "failed": len(results) - passed,
         "backend": list(backends),
         "fetch_mode": args.fetch_mode,
         "model": args.model,
+        "reasoning_effort": CONFIG["reasoning_effort"],
+        "max_turns": args.max_turns,
+        "max_searches": args.max_searches,
+        "max_fetches": args.max_fetches,
+        "data": str(args.data),
         "concurrency": workers,
         "raw_dir": str(raw_dir) if raw_dir else None,
         "run_stamp": run_stamp if raw_dir else None,
+        "spend_usd": round(spend.spent_usd, 4),
+        "spend_cap_usd": args.cap_usd,
+        "spend_stopped": spend.stopped,
         "results": results,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"passed={passed}/{len(results)} wrote {args.out}", flush=True)
+    print(f"passed={passed}/{len(results)} spend_usd={spend.spent_usd:.4f} wrote {args.out}", flush=True)
+    if spend.stopped:
+        print(f"stopped: the next request would pass the ${args.cap_usd:g} spend cap", flush=True)
+        return 1
     return 0
 
 

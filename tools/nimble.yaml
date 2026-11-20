@@ -6,6 +6,8 @@ setups:
       list_usd: 0.005
       basis: list
       bills_empty: true
+      # Nimble Extract, $1 per 1,000 requests (nimbleway.com/pricing, read 20 Nov 2026).
+      fetch_usd: 0.001
   nimble_lite_coding:
     class: main
     pricing:

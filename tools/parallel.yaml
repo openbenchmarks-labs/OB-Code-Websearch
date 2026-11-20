@@ -6,12 +6,16 @@ setups:
       list_usd: 0.001
       basis: list
       bills_empty: true
+      # Parallel Extract, $1 per 1,000 URLs (docs.parallel.ai/getting-started/pricing, read 20 Nov 2026).
+      fetch_usd: 0.001
   parallel_advanced_tool:
     class: main
     pricing:
       list_usd: 0.005
       basis: list
       bills_empty: true
+      # Parallel Extract, $1 per 1,000 URLs (docs.parallel.ai/getting-started/pricing, read 20 Nov 2026).
+      fetch_usd: 0.001
   parallel_fast:
     class: main
     pricing:

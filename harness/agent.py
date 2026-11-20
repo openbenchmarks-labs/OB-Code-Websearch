@@ -12,7 +12,6 @@ from typing import Any
 
 from .logger import request_scope, write_hop_pair, write_json
 from .search import (
-    DEFAULT_MAX_RESULTS,
     QUERY_PARAMETER,
     UNSCORED_FAILURES,
     SearchBackend,
@@ -22,9 +21,7 @@ from .search import (
     hit_text_stats,
     page_text_stats,
 )
-
-DEFAULT_MODEL = "gpt-6-sol"
-REASONING_EFFORT = "medium"
+from .spend import BudgetStop, Spend
 
 WEB_SEARCH_TOOL = {
     "type": "function",
@@ -247,12 +244,13 @@ def run_agent(
     client: Any,
     backend: SearchBackend | None = None,
     backend_name: str = "parallel_fast_tool",
-    model: str = DEFAULT_MODEL,
-    reasoning_effort: str = REASONING_EFFORT,
-    max_turns: int = 32,
-    max_searches: int = 5,
+    model: str,
+    reasoning_effort: str,
+    max_turns: int,
+    max_searches: int,
     max_fetches: int = 0,
-    max_results: int = DEFAULT_MAX_RESULTS,
+    max_results: int,
+    preview_chars: int,
     search_fn: Callable[[str], list[dict[str, str]]] | None = None,
     fetch_fn: Callable[[str, str], dict[str, str]] | None = None,
     system: str,
@@ -261,6 +259,9 @@ def run_agent(
     leak_needles: list[str] | None = None,
     text_format: dict[str, Any] | None = None,
     evidence_root: Path | None = None,
+    spend: Spend,
+    search_usd: float,
+    fetch_usd: float,
 ) -> AgentRun:
     backend = backend or (None if search_fn else get_backend(backend_name))
     provider = backend.name if backend is not None else backend_name
@@ -300,6 +301,7 @@ def run_agent(
             "tools": tools, "input": conversation, "max_output_tokens": 4000, "store": False,
             **({"text": {"format": text_format}} if text_format else {}),
         }
+        held_usd = spend.take_model(request)
         if run.evidence_dir is not None:
             write_json(run.evidence_dir / "model" / f"{model_turn + 1:02d}.request.json", request)
         try:
@@ -322,6 +324,8 @@ def run_agent(
             break
         llm_ms = int((time.perf_counter() - llm_started) * 1000)
         prompt_tokens, completion_tokens = _usage(response)
+        if getattr(response, "usage", None) is not None:
+            spend.settle_model(held_usd, prompt_tokens, completion_tokens)
         run.llm_ms += llm_ms
         run.llm_prompt_tokens += prompt_tokens
         run.llm_completion_tokens += completion_tokens
@@ -366,10 +370,13 @@ def run_agent(
                     provider=provider,
                     max_searches=max_searches,
                     max_results=max_results,
+                    preview_chars=preview_chars,
                     search_fn=search_fn,
                     turn=turn,
                     leak_needles=leak_needles,
                     client_model=model,
+                    spend=spend,
+                    usd=search_usd,
                 )
             elif name == "web_fetch":
                 if not allow_fetch:
@@ -384,6 +391,8 @@ def run_agent(
                     max_fetches=max_fetches,
                     fetch_fn=fetch_fn,
                     turn=turn,
+                    spend=spend,
+                    usd=fetch_usd,
                 )
             else:
                 conversation.append(_tool_output(call, {"error": f"unknown tool {name}"}))
@@ -452,10 +461,13 @@ def _run_search(
     provider: str,
     max_searches: int,
     max_results: int,
+    preview_chars: int,
     search_fn: Callable[[str], list[dict[str, str]]] | None,
     turn: int,
     leak_needles: list[str] | None,
     client_model: str = "",
+    spend: Spend,
+    usd: float,
 ) -> None:
     # One rule for every lane: each query is one search, so a request carrying N queries uses N of the max_searches
     # (the lane's tool text says so); a search with no results, or one that failed, does not use any; the turn it took
@@ -490,6 +502,7 @@ def _run_search(
     if gold_token:
         run.notes.append(f"query contained gold token:{gold_token}")
     before = getattr(backend, "last_meta", None)
+    spend.take("search", usd)
     try:
         with request_scope(run.evidence_dir):
             if search_fn:
@@ -507,7 +520,7 @@ def _run_search(
         meta = _failed_call_meta(backend, before)
     # Vendor latency is the HTTP call alone (`http_ms`), not our rate-pacing wait before it.
     latency_ms = int(meta["http_ms"] if meta.get("http_ms") is not None else (time.perf_counter() - search_started) * 1000)
-    hits, budget_cut_chars = fit_search_budget(hits)
+    hits, budget_cut_chars = fit_search_budget(hits, preview_chars)
     stats = hit_text_stats(hits)
     hit_urls = [str(hit.get("url") or "") for hit in hits if hit.get("url")]
     hop = SearchCall(
@@ -580,6 +593,8 @@ def _run_fetch(
     max_fetches: int,
     fetch_fn: Callable[[str, str], dict[str, str]] | None,
     turn: int,
+    spend: Spend,
+    usd: float,
 ) -> None:
     if len(run.fetches) >= max_fetches:
         conversation.append(_tool_output(call, {"error": "fetch budget exhausted; answer now"}))
@@ -594,6 +609,7 @@ def _run_fetch(
     fetch_started = time.perf_counter()
     meta: dict[str, Any] = {}
     before = getattr(backend, "last_meta", None)
+    spend.take("fetch", usd)
     try:
         with request_scope(run.evidence_dir):
             page = fetch_fn(url, objective) if fetch_fn else backend.fetch(url, objective=objective)
@@ -700,10 +716,6 @@ def _item_as_input(item: Any) -> dict[str, Any]:
         "status": getattr(item, "status", None),
     }
     return {key: value for key, value in payload.items() if value is not None}
-
-
-class BudgetStop(RuntimeError):
-    """The vendor account is out of credit; the round stops here."""
 
 
 # Azure's content filter refuses a prompt with HTTP 400 and one of these error codes; the same request has passed

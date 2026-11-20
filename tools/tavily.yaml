@@ -6,9 +6,15 @@ setups:
       list_usd: 0.016
       basis: list
       bills_empty: true
+      # Advanced Extract, 2 credits per 5 successful URLs, at the pay-as-you-go $0.008 per credit
+      # (docs.tavily.com/documentation/api-credits, read 20 Nov 2026). One URL is assumed to bill the full 2 credits.
+      fetch_usd: 0.016
   tavily_basic:
     class: main
     pricing:
       list_usd: 0.008
       basis: list
       bills_empty: true
+      # Basic Extract, 1 credit per 5 successful URLs, at the pay-as-you-go $0.008 per credit
+      # (docs.tavily.com/documentation/api-credits, read 20 Nov 2026). One URL is assumed to bill a full credit.
+      fetch_usd: 0.008
