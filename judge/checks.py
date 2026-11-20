@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 import re
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 FENCE = re.compile(r"```(?:[a-zA-Z0-9_+-]+)?\n(.*?)```", re.S)
 COMMENT_URL = re.compile(r"https?://[^\s#]+", re.I)
@@ -78,25 +79,31 @@ def needle_source_urls(source: str, needles: list[str]) -> dict[str, str | None]
     return cited
 
 
-def normalize_cite_url(url: str) -> str:
+def normalize_cite_url(url: str) -> tuple[str, str, tuple[tuple[str, str], ...]] | None:
+    """Host, path, and query identity. Fragments and trailing slashes are not distinct documents.
+
+    http and https name the same page. Path case and query values stay intact, so a parent path,
+    a longer sibling, or a different query is a different document.
+    """
     raw = (url or "").strip().rstrip(").,;\"'")
-    host_path = raw.split("://", 1)[-1]
-    host_path = host_path.split("#", 1)[0].split("?", 1)[0]
-    host_path = host_path.lower().removeprefix("www.")
-    return host_path.rstrip("/") or host_path
+    if not raw:
+        return None
+    parts = urlsplit(raw if "://" in raw else f"https://{raw}")
+    host = (parts.hostname or "").lower().removeprefix("www.").rstrip(".")
+    if not host:
+        return None
+    path = parts.path or "/"
+    if len(path) > 1:
+        path = path.rstrip("/")
+    query = tuple(sorted(parse_qsl(parts.query, keep_blank_values=True)))
+    return host, path, query
 
 
 def url_was_observed(cited: str, observed: list[str]) -> bool:
     key = normalize_cite_url(cited)
-    if not key:
+    if key is None:
         return False
-    for item in observed:
-        other = normalize_cite_url(item)
-        if not other:
-            continue
-        if key == other:
-            return True
-    return False
+    return any(normalize_cite_url(item) == key for item in observed)
 
 
 def hop_urls(run: Any) -> list[str]:
@@ -721,7 +728,6 @@ def score_ops(source: str, task: CodingTask, *, observed_urls: list[str] | None 
 
 
 import re
-from urllib.parse import parse_qsl, urlsplit
 
 JUDGE_VERSION = "facts-v2"
 
