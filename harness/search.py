@@ -166,8 +166,8 @@ class SearchBackend(Protocol):
 #   None   the query goes out exactly as the agent wrote it (comparison arms that measure the vendor without the rule).
 # A query left with no terms besides operators (`site:host/path` alone) gets the product name of each host as its
 # terms, since vendors reject or misread a query that is only an operator; under `None` it goes out as written.
-_SITE_INCLUDE_RE = re.compile(r"(?<![\w-])site:([^\s]+)", re.I)
-_OPERATOR_RE = re.compile(r"(?<![\w])-?site:\S+|(?<!\S)(?:OR|AND)(?!\S)", re.I)
+_SITE_INCLUDE_RE = re.compile(r"(?<!\S)site:([^\s]+)", re.I)
+_OPERATOR_RE = re.compile(r"(?<!\S)-?site:\S+|(?<!\S)(?:OR|AND)(?!\S)", re.I)
 _CONJUNCTIONS = frozenset({"or", "and"})
 _HOST_RE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 _SECOND_LEVEL_LABELS = frozenset({"co", "com", "org", "net", "gov", "edu", "ac"})
@@ -191,8 +191,8 @@ def rewrite_site(query: str, *, lift: bool) -> tuple[str, list[str]]:
     """(query, hosts moved into a domain filter). Under `lift` each valid `site:` value is removed from the query and
     its host goes to the filter, the path dropped; otherwise the query keeps its `site:` values as written and no
     filter is sent. A query with no terms left besides operators gets the product name of each host as its terms.
-    `-site:` and words ending in `site:` (website:) stay as written; a `site:` value with no valid host stays as
-    written."""
+    A `site:` operator starts the query or follows whitespace; `-site:` and `site:` inside other text (website:,
+    a URL path) stay as written; a `site:` value with no valid host stays as written."""
     hosts: list[str] = []
 
     def _take(match: re.Match[str]) -> str:
