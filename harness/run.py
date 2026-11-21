@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from judge import checks as facts
-from judge.checks import grade
+from judge.grader import grade_call
 
 from .agent import DEFAULT_MODEL, run_agent
 
@@ -62,7 +62,7 @@ def make_llm_client(*, timeout: float = 180, max_retries: int = 1) -> Any:
     return OpenAI(api_key=key, timeout=timeout, max_retries=max_retries)
 # --- End Environment ---
 # --- Task loader ---
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from judge.checks import extract_code, hop_retrieved_text, hop_urls, score_ops
@@ -250,11 +250,11 @@ def run_arm(
     )
     source = run.answer if is_facts else extract_code(run.answer, task.outfile)
     if is_facts:
-        verdict = grade(task.retrieval_key["accepted"], run.answer)
+        verdict = grade_call(task.retrieval_key["accepted"], run.answer)
         retrieval = score_retrieval(task, search_hops=run.searches, fetch_hops=run.fetches, policy=retrieval_policy)
         passed = verdict.passed
         retrieval_passed = retrieval["passed"]
-        details = {"answer": verdict.to_dict(), "retrieval": retrieval}
+        details = {"answer": asdict(verdict), "retrieval": retrieval}
     else:
         score = score_ops(source, task, observed_urls=hop_urls(run), retrieved_text=hop_retrieved_text(run))
         passed = score.passed

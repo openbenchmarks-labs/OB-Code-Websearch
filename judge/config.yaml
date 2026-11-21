@@ -11,7 +11,7 @@ judge:
       version: answer-grader-v1
       source:
         file: judge/grader.py
-        sha256: 0b554ca3844a95ece164d314c2c92ef48ada2af19422d50b1607b6744dd49962
+        sha256: 32e4461579deb147aab133a4db43fd213b3b907cf8e49cc8cadb9c3f35f8cef4
 board:
   item: pass_fail
   average: questions

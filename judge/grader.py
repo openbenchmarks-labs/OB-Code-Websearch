@@ -10,9 +10,11 @@ is sent to). It passes when that call is one of the question's right answers in 
 - SOAP: same operation (a trailing _Request is optional) sent to the Workday service that owns it.
 A question listed as unscored is graded None and left out of every count. A wrong answer also gets one failure type
 (Grade.kind): no readable answer, no call, or, from the right answer it came nearest to, the first check it failed.
+grade_call grades against a given list of right answers; the harness passes the list from each question row.
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 from dataclasses import dataclass
@@ -20,7 +22,6 @@ from pathlib import Path
 
 GRADER_VERSION = 'answer-grader-v1'
 KEY_FILE = Path(__file__).resolve().parent / 'answer-key.json'
-KEY = json.loads(KEY_FILE.read_text())
 # SAP prints some form-section keys both as sectIndex and sectionIndex.
 LABEL_ALIAS = {'sectindex': 'sectionindex'}
 
@@ -98,12 +99,22 @@ def _rest_miss(call: dict, right: dict) -> str | None:
     return None if all(re.search(r'(?:^|[?&\s])\$?expand=[^&\s]*\b' + re.escape(n) + r'\b', query, re.I) for n in need) else NO_EXPAND
 
 
+@functools.cache
+def _key() -> dict:
+    return json.loads(KEY_FILE.read_text())
+
+
 def grade(question_id: str, answer: str | dict | None) -> Grade:
-    if question_id in KEY['unscored']:
-        return Grade(None, KEY['unscored'][question_id])
-    entry = KEY['entries'].get(question_id)
+    key = _key()
+    if question_id in key['unscored']:
+        return Grade(None, key['unscored'][question_id])
+    entry = key['entries'].get(question_id)
     if entry is None:
-        raise KeyError(f'{question_id} is not in {KEY["version"]}')
+        raise KeyError(f'{question_id} is not in {key["version"]}')
+    return grade_call(entry['accepted'], answer)
+
+
+def grade_call(accepted: list[dict], answer: str | dict | None) -> Grade:
     try:
         call = json.loads(answer) if isinstance(answer, str) else (answer or {})
     except ValueError:
@@ -111,7 +122,7 @@ def grade(question_id: str, answer: str | dict | None) -> Grade:
     if not isinstance(call, dict) or not (call.get('path') or call.get('operation')):
         return Grade(False, 'no call in the answer', NO_CALL)
     misses = []
-    for right in entry['accepted']:
+    for right in accepted:
         if right.get('soap'):
             # Workday owns each operation in one service; the call must be sent to that service
             sent_to = [x.lower() for x in re.split(r'[/?]', call.get('path') or '')]
